@@ -6,7 +6,7 @@ PORT ?= 8080
 SNAPAUTH_IMAGE ?= ghcr.io/parhamdavari/snapauth:latest
 BOOTSTRAP_IMAGE ?= ghcr.io/parhamdavari/snapauth-bootstrap:latest
 
-.PHONY: help bootstrap up start stop restart logs ps shell health clean reset creds
+.PHONY: help bootstrap up start stop restart logs ps shell health clean reset
 
 help:
 	@echo "Setup:"
@@ -18,7 +18,7 @@ help:
 	@echo "  make ps                     # docker compose ps"
 	@echo "  make shell SERVICE=snapauth # shell into container"
 	@echo "  make health                 # call SnapAuth health endpoints"
-	@echo "  make creds                  # display FusionAuth admin credentials"
+	@echo
 	@echo
 	@echo "Cleanup:"
 	@echo "  make stop        # docker compose down"
@@ -55,17 +55,8 @@ health:
 clean:
 	SNAPAUTH_IMAGE=$(SNAPAUTH_IMAGE) BOOTSTRAP_IMAGE=$(BOOTSTRAP_IMAGE) $(COMPOSE) down -v --remove-orphans
 
+
 reset: clean
 	rm -f .env
 	rm -rf kickstart
 
-creds:
-	# Try showing via bootstrap image first; fall back to local jq parsing
-	(docker run --rm -v $(PWD):/workspace $(BOOTSTRAP_IMAGE) --show) || \
-	jq -r '"FusionAuth admin username: \(.variables.adminUsername)\n" +
-	       "FusionAuth admin password: \(.variables.adminPassword)\n" +
-	       "FusionAuth API key:        \(.variables.apiKey)\n" +
-	       "OIDC clientId:             \(.variables.applicationId)\n" +
-	       "OIDC clientSecret:         \(.variables.clientSecret)\n" +
-	       "Issuer:                    \(.variables.issuer)\n" +
-	       "FusionAuth UI:             http://localhost:9011\n"' kickstart/kickstart.json
