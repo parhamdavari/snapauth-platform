@@ -9,3 +9,5 @@ Usage:
 - Run `make up`.
 
 The bootstrap process generates the required `.env` secrets and starts every container, giving you a ready-to-use identity provider backed by SnapAuth with zero manual configuration.
+
+Curious developers can dig into the SnapAuth core at https://github.com/parhamdavari/SnapAuth.
