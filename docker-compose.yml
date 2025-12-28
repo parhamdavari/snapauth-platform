@@ -75,6 +75,14 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - default           # Internal: snapauth ↔ fusionauth, db
+      - shared-services   # External: rasa-main ↔ snapauth
+
+networks:
+  shared-services:
+    external: true
+    name: shared-services
 
 volumes:
   db_data:
