@@ -1,2 +1,5 @@
 .env
 kickstart/
+certs/*.crt
+certs/*.key
+certs/*.csr

@@ -1,0 +1,297 @@
+name: Build and Release SnapAuth Platform
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'  # Trigger on version tags (e.g., v2.0.0)
+  workflow_dispatch:  # Allow manual triggering
+    inputs:
+      version:
+        description: 'Release version (e.g., 2.0.0)'
+        required: true
+        type: string
+
+env:
+  SNAPAUTH_VERSION: "2.0.0"
+  FUSIONAUTH_VERSION: "1.62.1"
+  POSTGRES_VERSION: "16-alpine"
+  NGINX_VERSION: "1.25-alpine"
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+
+    steps:
+      - name: Checkout snapauth-platform
+        uses: actions/checkout@v4
+        with:
+          path: snapauth-platform
+
+      - name: Checkout SnapAuth source
+        uses: actions/checkout@v4
+        with:
+          repository: parhamdavari/SnapAuth
+          path: SnapAuth
+          ref: main
+
+      - name: Set version from tag or input
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Release version: $VERSION"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build SnapAuth image
+        run: |
+          cd SnapAuth/snapauth
+          docker build -t snapauth:${{ steps.version.outputs.version }} .
+          docker tag snapauth:${{ steps.version.outputs.version }} snapauth:latest
+
+      - name: Build Bootstrap image
+        run: |
+          cd SnapAuth/scripts
+          docker build -f Dockerfile.bootstrap -t snapauth-bootstrap:${{ steps.version.outputs.version }} .
+          docker tag snapauth-bootstrap:${{ steps.version.outputs.version }} snapauth-bootstrap:latest
+
+      - name: Pull dependency images
+        run: |
+          docker pull fusionauth/fusionauth-app:${{ env.FUSIONAUTH_VERSION }}
+          docker pull postgres:${{ env.POSTGRES_VERSION }}
+          docker pull nginx:${{ env.NGINX_VERSION }}
+
+      - name: Create release directory structure
+        run: |
+          mkdir -p release/images
+          mkdir -p release/docs
+          mkdir -p release/scripts
+          mkdir -p release/certs
+
+      - name: Export images to tarballs
+        run: |
+          cd release/images
+
+          echo "Exporting snapauth image..."
+          docker save snapauth:${{ steps.version.outputs.version }} -o snapauth-v${{ steps.version.outputs.version }}.tar
+
+          echo "Exporting bootstrap image..."
+          docker save snapauth-bootstrap:${{ steps.version.outputs.version }} -o bootstrap-v${{ steps.version.outputs.version }}.tar
+
+          echo "Exporting fusionauth image..."
+          docker save fusionauth/fusionauth-app:${{ env.FUSIONAUTH_VERSION }} -o fusionauth-${{ env.FUSIONAUTH_VERSION }}.tar
+
+          echo "Exporting postgres image..."
+          docker save postgres:${{ env.POSTGRES_VERSION }} -o postgres-${{ env.POSTGRES_VERSION }}.tar
+
+          echo "Exporting nginx image..."
+          docker save nginx:${{ env.NGINX_VERSION }} -o nginx-${{ env.NGINX_VERSION }}.tar
+
+          ls -lh
+
+      - name: Generate checksums
+        run: |
+          cd release/images
+          sha256sum *.tar > checksums.txt
+          cat checksums.txt
+
+      - name: Create VERSION.yml manifest
+        run: |
+          cd release
+          cat > VERSION.yml << 'EOF'
+          release:
+            version: "${{ steps.version.outputs.version }}"
+            date: "$(date -u +%Y-%m-%d)"
+            platform: "snapauth-platform"
+
+          components:
+            snapauth:
+              version: "${{ steps.version.outputs.version }}"
+              image_tag: "snapauth:${{ steps.version.outputs.version }}"
+              image_file: "snapauth-v${{ steps.version.outputs.version }}.tar"
+              image_digest: "$(docker inspect snapauth:${{ steps.version.outputs.version }} --format='{{.Id}}')"
+
+            bootstrap:
+              version: "${{ steps.version.outputs.version }}"
+              image_tag: "snapauth-bootstrap:${{ steps.version.outputs.version }}"
+              image_file: "bootstrap-v${{ steps.version.outputs.version }}.tar"
+              image_digest: "$(docker inspect snapauth-bootstrap:${{ steps.version.outputs.version }} --format='{{.Id}}')"
+
+            fusionauth:
+              version: "${{ env.FUSIONAUTH_VERSION }}"
+              image_tag: "fusionauth/fusionauth-app:${{ env.FUSIONAUTH_VERSION }}"
+              image_file: "fusionauth-${{ env.FUSIONAUTH_VERSION }}.tar"
+              image_digest: "$(docker inspect fusionauth/fusionauth-app:${{ env.FUSIONAUTH_VERSION }} --format='{{.Id}}')"
+
+            postgresql:
+              version: "${{ env.POSTGRES_VERSION }}"
+              image_tag: "postgres:${{ env.POSTGRES_VERSION }}"
+              image_file: "postgres-${{ env.POSTGRES_VERSION }}.tar"
+              image_digest: "$(docker inspect postgres:${{ env.POSTGRES_VERSION }} --format='{{.Id}}')"
+
+            nginx:
+              version: "${{ env.NGINX_VERSION }}"
+              image_tag: "nginx:${{ env.NGINX_VERSION }}"
+              image_file: "nginx-${{ env.NGINX_VERSION }}.tar"
+              image_digest: "$(docker inspect nginx:${{ env.NGINX_VERSION }} --format='{{.Id}}')"
+
+          checksums:
+            sha256: "images/checksums.txt"
+
+          installation:
+            offline_script: "offline-install.sh"
+            documentation: "docs/AIR-GAPPED-DEPLOYMENT.md"
+          EOF
+
+      - name: Copy deployment files
+        run: |
+          cd release
+
+          # Core deployment files
+          cp ../snapauth-platform/docker-compose.yml .
+          cp ../snapauth-platform/docker-compose.microservices.yml .
+          cp ../snapauth-platform/nginx.conf .
+          cp ../snapauth-platform/Makefile .
+          cp ../snapauth-platform/.env.example .
+          cp ../snapauth-platform/.gitignore .
+
+          # Scripts
+          cp ../snapauth-platform/scripts/* scripts/
+          cp ../snapauth-platform/offline-install.sh .
+
+          # Certificate generation
+          cp ../snapauth-platform/certs/generate-self-signed.sh certs/
+
+          # Documentation
+          cp ../snapauth-platform/README.md .
+          cp ../snapauth-platform/CHANGELOG.md .
+          cp ../snapauth-platform/docs/*.md docs/
+
+          # Make scripts executable
+          chmod +x offline-install.sh
+          chmod +x scripts/*.sh
+          chmod +x certs/generate-self-signed.sh
+
+      - name: Create release tarball
+        run: |
+          tar czf snapauth-release-v${{ steps.version.outputs.version }}.tar.gz \
+            -C release \
+            .
+
+          # Generate checksum for release tarball
+          sha256sum snapauth-release-v${{ steps.version.outputs.version }}.tar.gz > snapauth-release-v${{ steps.version.outputs.version }}.tar.gz.sha256
+
+          ls -lh snapauth-release-v${{ steps.version.outputs.version }}.tar.gz
+
+      - name: Verify release structure
+        run: |
+          echo "=== Release tarball contents ==="
+          tar tzf snapauth-release-v${{ steps.version.outputs.version }}.tar.gz | head -30
+
+          echo ""
+          echo "=== Image tarballs ==="
+          tar tzf snapauth-release-v${{ steps.version.outputs.version }}.tar.gz | grep "images/.*\.tar$"
+
+          echo ""
+          echo "=== Release size ==="
+          du -h snapauth-release-v${{ steps.version.outputs.version }}.tar.gz
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: SnapAuth Platform v${{ steps.version.outputs.version }}
+          body: |
+            # SnapAuth Platform v${{ steps.version.outputs.version }}
+
+            Production-ready authentication service with enterprise security.
+
+            ## 🔒 Security Features
+
+            - ✅ API Key Authentication - Admin endpoints protected with 256-bit keys
+            - ✅ Rate Limiting - 10/min (login), 30/min (admin), 60/min (general)
+            - ✅ TLS/HTTPS - Nginx reverse proxy with TLS 1.2/1.3
+            - ✅ Network Isolation - FusionAuth/DB not exposed externally
+            - ✅ Audit Logging - Structured JSON logs for compliance
+            - ✅ IP Whitelisting - CIDR notation support for access control
+
+            ## 📦 What's Included
+
+            This release tarball contains:
+            - Pre-built Docker images (SnapAuth, Bootstrap, FusionAuth, PostgreSQL, Nginx)
+            - Complete deployment configuration (docker-compose.yml, nginx.conf)
+            - Operational scripts (backup, restore, secrets management)
+            - Comprehensive documentation (security, installation, migration)
+            - Offline installation support (works in air-gapped environments)
+
+            ## 🚀 Quick Start
+
+            ```bash
+            # Extract release
+            tar xzf snapauth-release-v${{ steps.version.outputs.version }}.tar.gz
+            cd snapauth-release-v${{ steps.version.outputs.version }}
+
+            # Load images (works offline)
+            ./offline-install.sh
+
+            # Generate TLS certificates (development)
+            cd certs && ./generate-self-signed.sh && cd ..
+
+            # Deploy
+            make up
+
+            # Verify
+            make health
+            ```
+
+            ## 📚 Documentation
+
+            - [Installation Guide](docs/INSTALLATION.md)
+            - [Security Guide](docs/SECURITY.md)
+            - [Air-Gapped Deployment](docs/AIR-GAPPED-DEPLOYMENT.md)
+            - [Migration Guide](docs/MIGRATION.md) (if upgrading from v1.x)
+            - [Network Modes](docs/NETWORK-MODES.md)
+
+            ## 🔄 Upgrading from v1.x
+
+            **Important:** v2.0.0 contains breaking changes. See [MIGRATION.md](docs/MIGRATION.md) for upgrade instructions.
+
+            ## 📊 Component Versions
+
+            - SnapAuth: ${{ steps.version.outputs.version }}
+            - Bootstrap: ${{ steps.version.outputs.version }}
+            - FusionAuth: ${{ env.FUSIONAUTH_VERSION }}
+            - PostgreSQL: ${{ env.POSTGRES_VERSION }}
+            - Nginx: ${{ env.NGINX_VERSION }}
+
+            ## 🔐 Checksum Verification
+
+            ```bash
+            sha256sum -c snapauth-release-v${{ steps.version.outputs.version }}.tar.gz.sha256
+            ```
+
+            ## 🆘 Support
+
+            - Documentation: See docs/ directory in release
+            - Issues: https://github.com/parhamdavari/snapauth-platform/issues
+            - Security: See SECURITY.md
+          files: |
+            snapauth-release-v${{ steps.version.outputs.version }}.tar.gz
+            snapauth-release-v${{ steps.version.outputs.version }}.tar.gz.sha256
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker system prune -af

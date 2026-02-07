@@ -1,6 +1,6 @@
 services:
   bootstrap:
-    image: ${BOOTSTRAP_IMAGE:-ghcr.io/parhamdavari/snapauth-bootstrap:latest}
+    image: ${BOOTSTRAP_IMAGE:-snapauth-bootstrap:v2.0.0}
     volumes:
       - .:/workspace
     restart: "no"
@@ -16,19 +16,34 @@ services:
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_DB: ${DB_NAME}
-    ports:
-      - "5434:5432"
+      # PostgreSQL configuration for resource management
+    command: >
+      postgres
+      -c shared_buffers=256MB
+      -c max_connections=100
+    # NO EXTERNAL PORT EXPOSURE - internal network only
+    networks:
+      - fusionauth-backend
     volumes:
       - db_data:/var/lib/postgresql/data
+    shm_size: 256mb
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '1.0'
+          memory: 1G
 
   fusionauth:
-    image: fusionauth/fusionauth-app:1.50.1
+    image: fusionauth/fusionauth-app:1.62.1
     depends_on:
       bootstrap:
         condition: service_completed_successfully
@@ -42,13 +57,14 @@ services:
       DATABASE_ROOT_PASSWORD: ${DB_PASSWORD}
       DATABASE_USERNAME: ${DB_USER}
       DATABASE_PASSWORD: ${DB_PASSWORD}
-      FUSIONAUTH_APP_MEMORY: ${FUSIONAUTH_APP_MEMORY}
+      FUSIONAUTH_APP_MEMORY: ${FUSIONAUTH_APP_MEMORY:-512M}
       FUSIONAUTH_APP_RUNTIME_MODE: ${FUSIONAUTH_APP_RUNTIME_MODE}
       FUSIONAUTH_APP_URL: ${FUSIONAUTH_BASE_URL}
       SEARCH_TYPE: database
       FUSIONAUTH_APP_KICKSTART_FILE: /usr/local/fusionauth/kickstart/kickstart.json
-    ports:
-      - "9011:9011"
+    # NO EXTERNAL PORT EXPOSURE - only snapauth can access
+    networks:
+      - fusionauth-backend
     volumes:
       - ./kickstart:/usr/local/fusionauth/kickstart
     restart: unless-stopped
@@ -57,9 +73,17 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G
+        reservations:
+          cpus: '1.0'
+          memory: 512M
 
   snapauth:
-    image: ${SNAPAUTH_IMAGE:-ghcr.io/parhamdavari/snapauth:latest}
+    image: ${SNAPAUTH_IMAGE:-snapauth:v2.0.0}
     depends_on:
       fusionauth:
         condition: service_healthy
@@ -67,8 +91,7 @@ services:
       - .env
     environment:
       JWT_EXPECTED_ISS: ${JWT_EXPECTED_ISS:-http://fusionauth:9011}
-    ports:
-      - "${SNAPAUTH_SERVICE_PORT:-8080}:8080"
+    # NO EXTERNAL PORT EXPOSURE - accessed via Nginx proxy
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
@@ -76,13 +99,55 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - default           # Internal: snapauth ↔ fusionauth, db
-      - shared-services   # External: rasa-main ↔ snapauth
+      - snapauth-internal    # External access via Nginx
+      - fusionauth-backend   # Internal access to FusionAuth
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+
+  nginx:
+    image: nginx:1.25-alpine
+    depends_on:
+      snapauth:
+        condition: service_healthy
+    ports:
+      - "80:80"      # HTTP (redirects to HTTPS)
+      - "443:443"    # HTTPS (TLS termination)
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+    networks:
+      - snapauth-internal
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
 
 networks:
-  shared-services:
-    external: true
-    name: shared-services
+  # Internal network for SnapAuth external access
+  snapauth-internal:
+    driver: bridge
+    internal: false  # Can reach internet and be accessed externally
+
+  # Backend network for FusionAuth and database (completely isolated)
+  fusionauth-backend:
+    driver: bridge
+    internal: true  # No external access
 
 volumes:
   db_data:

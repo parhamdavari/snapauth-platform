@@ -1,0 +1,14 @@
+# Microservices Integration Mode Override
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.microservices.yml up
+
+services:
+  snapauth:
+    networks:
+      - snapauth-internal
+      - fusionauth-backend
+      - shared-services  # Add shared-services network for microservices integration
+
+networks:
+  shared-services:
+    external: true
+    name: ${SHARED_SERVICES_NETWORK:-shared-services}

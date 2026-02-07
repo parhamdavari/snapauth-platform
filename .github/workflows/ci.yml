@@ -1,0 +1,465 @@
+name: CI - Test and Validate
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:  # Allow manual triggering
+
+env:
+  SNAPAUTH_VERSION: "2.0.0"
+  FUSIONAUTH_VERSION: "1.62.1"
+  POSTGRES_VERSION: "16-alpine"
+
+jobs:
+  lint-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate Docker Compose files
+        run: |
+          docker compose -f docker-compose.yml config > /dev/null
+          echo "✓ docker-compose.yml is valid"
+
+          docker compose -f docker-compose.yml -f docker-compose.microservices.yml config > /dev/null
+          echo "✓ docker-compose.microservices.yml is valid"
+
+      - name: Validate Nginx configuration
+        run: |
+          docker run --rm -v "$PWD/nginx.conf:/etc/nginx/nginx.conf:ro" nginx:alpine nginx -t
+          echo "✓ nginx.conf is valid"
+
+      - name: Check scripts are executable
+        run: |
+          [ -x scripts/backup.sh ] || chmod +x scripts/backup.sh
+          [ -x scripts/restore.sh ] || chmod +x scripts/restore.sh
+          [ -x scripts/manage-secrets.sh ] || chmod +x scripts/manage-secrets.sh
+          [ -x offline-install.sh ] || chmod +x offline-install.sh
+          [ -x certs/generate-self-signed.sh ] || chmod +x certs/generate-self-signed.sh
+          echo "✓ All scripts are executable"
+
+      - name: Validate shell scripts
+        run: |
+          sudo apt-get update && sudo apt-get install -y shellcheck
+          shellcheck scripts/*.sh offline-install.sh certs/generate-self-signed.sh
+          echo "✓ Shell scripts pass shellcheck"
+
+      - name: Check documentation links
+        run: |
+          # Check README links
+          grep -o '\[.*\](docs/.*\.md)' README.md | while read -r link; do
+            file=$(echo "$link" | sed 's/.*(\(.*\))/\1/')
+            if [ ! -f "$file" ]; then
+              echo "✗ Broken link in README: $file"
+              exit 1
+            fi
+          done
+          echo "✓ All documentation links are valid"
+
+  build-test:
+    runs-on: ubuntu-latest
+    needs: lint-and-validate
+    steps:
+      - name: Checkout snapauth-platform
+        uses: actions/checkout@v4
+        with:
+          path: snapauth-platform
+
+      - name: Checkout SnapAuth source
+        uses: actions/checkout@v4
+        with:
+          repository: parhamdavari/SnapAuth
+          path: SnapAuth
+          ref: main
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build SnapAuth image
+        run: |
+          cd SnapAuth/snapauth
+          docker build -t snapauth:test .
+
+      - name: Build Bootstrap image
+        run: |
+          cd SnapAuth/scripts
+          docker build -f Dockerfile.bootstrap -t snapauth-bootstrap:test .
+
+      - name: Pull dependency images
+        run: |
+          docker pull fusionauth/fusionauth-app:${{ env.FUSIONAUTH_VERSION }}
+          docker pull postgres:${{ env.POSTGRES_VERSION }}
+          docker pull nginx:1.25-alpine
+
+      - name: Test offline-install.sh script
+        run: |
+          cd snapauth-platform
+
+          # Create test images directory
+          mkdir -p test-images
+
+          # Export test images
+          docker save snapauth:test -o test-images/snapauth-test.tar
+          docker save snapauth-bootstrap:test -o test-images/bootstrap-test.tar
+          docker save fusionauth/fusionauth-app:${{ env.FUSIONAUTH_VERSION }} -o test-images/fusionauth-test.tar
+
+          # Modify offline-install.sh to use test-images directory
+          sed 's|IMAGES_DIR="images"|IMAGES_DIR="test-images"|' offline-install.sh > test-offline-install.sh
+          chmod +x test-offline-install.sh
+
+          # Run offline install
+          ./test-offline-install.sh
+
+          # Verify images loaded
+          docker images | grep snapauth:test
+          docker images | grep snapauth-bootstrap:test
+
+  deploy-test:
+    runs-on: ubuntu-latest
+    needs: build-test
+    steps:
+      - name: Checkout snapauth-platform
+        uses: actions/checkout@v4
+        with:
+          path: snapauth-platform
+
+      - name: Checkout SnapAuth source
+        uses: actions/checkout@v4
+        with:
+          repository: parhamdavari/SnapAuth
+          path: SnapAuth
+          ref: main
+
+      - name: Build images
+        run: |
+          cd SnapAuth/snapauth
+          docker build -t snapauth:${{ env.SNAPAUTH_VERSION }} .
+
+          cd ../scripts
+          docker build -f Dockerfile.bootstrap -t snapauth-bootstrap:${{ env.SNAPAUTH_VERSION }} .
+
+      - name: Pull dependency images
+        run: |
+          docker pull fusionauth/fusionauth-app:${{ env.FUSIONAUTH_VERSION }}
+          docker pull postgres:${{ env.POSTGRES_VERSION }}
+          docker pull nginx:1.25-alpine
+
+      - name: Generate test certificates
+        run: |
+          cd snapauth-platform/certs
+          ./generate-self-signed.sh
+
+      - name: Test isolated deployment
+        run: |
+          cd snapauth-platform
+
+          # Start services
+          docker compose up -d
+
+          # Wait for services to be healthy
+          echo "Waiting for services to start..."
+          sleep 30
+
+          # Check services are running
+          docker compose ps
+
+          # Test health endpoint
+          for i in {1..30}; do
+            if curl -f http://localhost:8080/health; then
+              echo "✓ Health check passed"
+              break
+            fi
+            if [ $i -eq 30 ]; then
+              echo "✗ Health check failed after 30 attempts"
+              docker compose logs
+              exit 1
+            fi
+            sleep 2
+          done
+
+          # Get admin API key from .env
+          API_KEY=$(grep SNAPAUTH_ADMIN_API_KEY .env | cut -d= -f2)
+          echo "Admin API key retrieved (length: ${#API_KEY})"
+
+          # Test user creation with API key
+          curl -f -X POST http://localhost:8080/v1/users \
+            -H "X-SnapAuth-API-Key: $API_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{"username":"testuser@example.com","password":"Test123!@#"}' \
+            || (echo "✗ User creation failed"; docker compose logs snapauth; exit 1)
+
+          echo "✓ User creation succeeded"
+
+          # Test login
+          curl -f -X POST http://localhost:8080/v1/auth/login \
+            -H "Content-Type: application/json" \
+            -d '{"username":"testuser@example.com","password":"Test123!@#"}' \
+            || (echo "✗ Login failed"; docker compose logs snapauth; exit 1)
+
+          echo "✓ Login succeeded"
+
+          # Stop services
+          docker compose down -v
+
+      - name: Test microservices deployment
+        run: |
+          cd snapauth-platform
+
+          # Create shared-services network
+          docker network create shared-services
+
+          # Start in microservices mode
+          docker compose -f docker-compose.yml -f docker-compose.microservices.yml up -d
+
+          # Wait for services
+          sleep 30
+
+          # Verify snapauth is on shared-services network
+          docker network inspect shared-services | grep snapauth || (echo "✗ SnapAuth not on shared-services network"; exit 1)
+
+          echo "✓ Microservices mode deployment succeeded"
+
+          # Cleanup
+          docker compose -f docker-compose.yml -f docker-compose.microservices.yml down -v
+          docker network rm shared-services
+
+  security-test:
+    runs-on: ubuntu-latest
+    needs: build-test
+    steps:
+      - name: Checkout snapauth-platform
+        uses: actions/checkout@v4
+        with:
+          path: snapauth-platform
+
+      - name: Checkout SnapAuth source
+        uses: actions/checkout@v4
+        with:
+          repository: parhamdavari/SnapAuth
+          path: SnapAuth
+          ref: main
+
+      - name: Build images
+        run: |
+          cd SnapAuth/snapauth
+          docker build -t snapauth:${{ env.SNAPAUTH_VERSION }} .
+
+          cd ../scripts
+          docker build -f Dockerfile.bootstrap -t snapauth-bootstrap:${{ env.SNAPAUTH_VERSION }} .
+
+      - name: Pull dependency images
+        run: |
+          docker pull fusionauth/fusionauth-app:${{ env.FUSIONAUTH_VERSION }}
+          docker pull postgres:${{ env.POSTGRES_VERSION }}
+          docker pull nginx:1.25-alpine
+
+      - name: Generate test certificates
+        run: |
+          cd snapauth-platform/certs
+          ./generate-self-signed.sh
+
+      - name: Start services
+        run: |
+          cd snapauth-platform
+          docker compose up -d
+          sleep 30
+
+      - name: Test API key authentication
+        run: |
+          cd snapauth-platform
+
+          # Test 1: User creation WITHOUT API key should fail
+          echo "Test 1: Verify unauthenticated user creation is blocked"
+          if curl -f -X POST http://localhost:8080/v1/users \
+            -H "Content-Type: application/json" \
+            -d '{"username":"test","password":"test"}'; then
+            echo "✗ SECURITY FAILURE: User creation succeeded without API key"
+            exit 1
+          fi
+          echo "✓ Unauthenticated user creation blocked"
+
+          # Test 2: User creation with INVALID API key should fail
+          echo "Test 2: Verify invalid API key is rejected"
+          if curl -f -X POST http://localhost:8080/v1/users \
+            -H "X-SnapAuth-API-Key: invalid-key" \
+            -H "Content-Type: application/json" \
+            -d '{"username":"test","password":"test"}'; then
+            echo "✗ SECURITY FAILURE: User creation succeeded with invalid API key"
+            exit 1
+          fi
+          echo "✓ Invalid API key rejected"
+
+          # Test 3: User creation with VALID API key should succeed
+          echo "Test 3: Verify valid API key works"
+          API_KEY=$(grep SNAPAUTH_ADMIN_API_KEY .env | cut -d= -f2)
+          if ! curl -f -X POST http://localhost:8080/v1/users \
+            -H "X-SnapAuth-API-Key: $API_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{"username":"testuser@example.com","password":"Test123!@#"}'; then
+            echo "✗ User creation failed with valid API key"
+            exit 1
+          fi
+          echo "✓ Valid API key accepted"
+
+      - name: Test rate limiting
+        run: |
+          cd snapauth-platform
+
+          echo "Test: Rate limiting on login endpoint"
+          RATE_LIMITED=false
+
+          # Send 15 login attempts (limit is 10/minute)
+          for i in {1..15}; do
+            RESPONSE=$(curl -s -w "%{http_code}" -o /dev/null http://localhost:8080/v1/auth/login \
+              -H "Content-Type: application/json" \
+              -d '{"username":"test","password":"wrong"}')
+
+            if [ "$RESPONSE" = "429" ]; then
+              RATE_LIMITED=true
+              echo "✓ Rate limit enforced at attempt $i"
+              break
+            fi
+          done
+
+          if [ "$RATE_LIMITED" = "false" ]; then
+            echo "✗ SECURITY WARNING: Rate limiting not working"
+            exit 1
+          fi
+
+      - name: Test security headers
+        run: |
+          cd snapauth-platform
+
+          echo "Test: Security headers present"
+          HEADERS=$(curl -sI http://localhost:8080/health)
+
+          echo "$HEADERS" | grep -q "X-Frame-Options" || (echo "✗ Missing X-Frame-Options header"; exit 1)
+          echo "$HEADERS" | grep -q "X-Content-Type-Options" || (echo "✗ Missing X-Content-Type-Options header"; exit 1)
+
+          echo "✓ Security headers present"
+
+      - name: Test network isolation
+        run: |
+          cd snapauth-platform
+
+          echo "Test: FusionAuth port 9011 not exposed"
+          # Should fail because port is not exposed
+          if curl -f --max-time 5 http://localhost:9011/api/status; then
+            echo "✗ SECURITY FAILURE: FusionAuth is exposed externally"
+            exit 1
+          fi
+          echo "✓ FusionAuth is properly isolated"
+
+          echo "Test: PostgreSQL port 5432 not exposed"
+          # Should fail because port is not exposed
+          if nc -zv localhost 5432 2>&1 | grep -q "succeeded"; then
+            echo "✗ SECURITY FAILURE: PostgreSQL is exposed externally"
+            exit 1
+          fi
+          echo "✓ PostgreSQL is properly isolated"
+
+      - name: Cleanup
+        if: always()
+        run: |
+          cd snapauth-platform
+          docker compose down -v
+
+  backup-restore-test:
+    runs-on: ubuntu-latest
+    needs: build-test
+    steps:
+      - name: Checkout snapauth-platform
+        uses: actions/checkout@v4
+        with:
+          path: snapauth-platform
+
+      - name: Checkout SnapAuth source
+        uses: actions/checkout@v4
+        with:
+          repository: parhamdavari/SnapAuth
+          path: SnapAuth
+          ref: main
+
+      - name: Build images
+        run: |
+          cd SnapAuth/snapauth
+          docker build -t snapauth:${{ env.SNAPAUTH_VERSION }} .
+
+          cd ../scripts
+          docker build -f Dockerfile.bootstrap -t snapauth-bootstrap:${{ env.SNAPAUTH_VERSION }} .
+
+      - name: Pull dependency images
+        run: |
+          docker pull fusionauth/fusionauth-app:${{ env.FUSIONAUTH_VERSION }}
+          docker pull postgres:${{ env.POSTGRES_VERSION }}
+          docker pull nginx:1.25-alpine
+
+      - name: Generate test certificates
+        run: |
+          cd snapauth-platform/certs
+          ./generate-self-signed.sh
+
+      - name: Start services and create test data
+        run: |
+          cd snapauth-platform
+          docker compose up -d
+          sleep 30
+
+          # Create test user
+          API_KEY=$(grep SNAPAUTH_ADMIN_API_KEY .env | cut -d= -f2)
+          curl -f -X POST http://localhost:8080/v1/users \
+            -H "X-SnapAuth-API-Key: $API_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{"username":"backuptest@example.com","password":"Test123!@#"}'
+
+          echo "✓ Test data created"
+
+      - name: Test backup
+        run: |
+          cd snapauth-platform
+          ./scripts/backup.sh
+
+          # Verify backup files exist
+          LATEST_BACKUP=$(ls -t /opt/snapauth-backups/snapauth-*-db.sql.gz | head -1)
+          [ -f "$LATEST_BACKUP" ] || (echo "✗ Database backup not found"; exit 1)
+
+          echo "✓ Backup created: $LATEST_BACKUP"
+
+      - name: Test restore
+        run: |
+          cd snapauth-platform
+
+          # Stop services
+          docker compose down -v
+
+          # Start fresh
+          docker compose up -d
+          sleep 30
+
+          # Restore from backup
+          LATEST_BACKUP=$(ls -t /opt/snapauth-backups/snapauth-*-db.sql.gz | head -1)
+          BACKUP_PREFIX=$(basename "$LATEST_BACKUP" | sed 's/-db.sql.gz//')
+          ./scripts/restore.sh "/opt/snapauth-backups/$BACKUP_PREFIX"
+
+          # Restart services
+          docker compose restart
+
+          sleep 10
+
+          # Verify test user still exists by trying to log in
+          curl -f -X POST http://localhost:8080/v1/auth/login \
+            -H "Content-Type: application/json" \
+            -d '{"username":"backuptest@example.com","password":"Test123!@#"}' \
+            || (echo "✗ Restore failed: test user not found"; exit 1)
+
+          echo "✓ Restore successful: test data recovered"
+
+      - name: Cleanup
+        if: always()
+        run: |
+          cd snapauth-platform
+          docker compose down -v
+          sudo rm -rf /opt/snapauth-backups

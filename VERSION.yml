@@ -1,0 +1,74 @@
+# SnapAuth Release Manifest
+# This file contains version information and checksums for all components
+
+release:
+  version: "2.0.0"
+  date: "2026-02-07"
+  description: "Security hardening and production-ready release"
+  breaking_changes: true
+
+components:
+  snapauth:
+    version: "2.0.0"
+    image_tag: "snapauth:v2.0.0"
+    image_digest: ""  # Will be populated by CI/CD
+    changes:
+      - "Added API key authentication for admin endpoints"
+      - "Implemented IP whitelisting with CIDR support"
+      - "Added rate limiting (10/min auth, 30/min admin, 60/min general)"
+      - "Implemented structured audit logging"
+      - "Added security headers middleware"
+      - "Removed token content from logs"
+
+  bootstrap:
+    version: "2.0.0"
+    image_tag: "snapauth-bootstrap:v2.0.0"
+    image_digest: ""  # Will be populated by CI/CD
+    changes:
+      - "Generates SNAPAUTH_ADMIN_API_KEY"
+      - "Sets default IP whitelist (RFC 1918 private networks)"
+      - "Configures rate limiting defaults"
+
+  fusionauth:
+    version: "1.62.1"
+    image_tag: "fusionauth/fusionauth-app:1.62.1"
+    image_digest: ""  # Will be populated by CI/CD
+
+  postgresql:
+    version: "16-alpine"
+    image_tag: "postgres:16-alpine"
+    image_digest: ""  # Will be populated by CI/CD
+
+  nginx:
+    version: "1.25-alpine"
+    image_tag: "nginx:1.25-alpine"
+    image_digest: ""  # Will be populated by CI/CD
+
+platform:
+  docker_compose_version: "3.8"
+  min_docker_version: "20.10.0"
+  min_docker_compose_version: "2.0.0"
+
+checksums:
+  # File checksums - will be populated by CI/CD
+  docker_compose_yml: ""
+  nginx_conf: ""
+  makefile: ""
+
+security:
+  breaking_changes:
+    - "POST /v1/users now requires X-SnapAuth-API-Key header"
+    - "DELETE /v1/users now enforces self-only access (or admin key)"
+    - "Login endpoint now rate limited to 10 requests/minute"
+  
+  migration_required: true
+  migration_guide: "docs/MIGRATION.md"
+
+deployment_modes:
+  - name: "isolated"
+    description: "Default mode - isolated network, no external dependencies"
+    default: true
+  
+  - name: "microservices"
+    description: "Integration mode - joins shared-services network"
+    command: "make up MODE=microservices"
