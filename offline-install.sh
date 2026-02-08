@@ -70,6 +70,28 @@ if [ "$FAILED" -gt 0 ]; then
     echo -e "${YELLOW}Warning: Some images failed to load${NC}"
 fi
 
+# Tag images with GHCR references (for docker-compose compatibility)
+echo ""
+echo "Tagging images for GHCR compatibility..."
+
+# Check and tag snapauth image
+if docker images | grep -q "^snapauth "; then
+    SNAPAUTH_TAG=$(docker images --format "{{.Repository}}:{{.Tag}}" | grep "^snapauth:" | head -1)
+    if [ -n "$SNAPAUTH_TAG" ]; then
+        docker tag "$SNAPAUTH_TAG" "ghcr.io/parhamdavari/$SNAPAUTH_TAG" 2>/dev/null || true
+        echo -e "  ${GREEN}✓${NC} Tagged $SNAPAUTH_TAG → ghcr.io/parhamdavari/$SNAPAUTH_TAG"
+    fi
+fi
+
+# Check and tag bootstrap image
+if docker images | grep -q "^snapauth-bootstrap "; then
+    BOOTSTRAP_TAG=$(docker images --format "{{.Repository}}:{{.Tag}}" | grep "^snapauth-bootstrap:" | head -1)
+    if [ -n "$BOOTSTRAP_TAG" ]; then
+        docker tag "$BOOTSTRAP_TAG" "ghcr.io/parhamdavari/$BOOTSTRAP_TAG" 2>/dev/null || true
+        echo -e "  ${GREEN}✓${NC} Tagged $BOOTSTRAP_TAG → ghcr.io/parhamdavari/$BOOTSTRAP_TAG"
+    fi
+fi
+
 # Verify images
 echo ""
 echo "Verifying loaded images..."

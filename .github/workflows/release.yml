@@ -54,14 +54,18 @@ jobs:
       - name: Build SnapAuth image
         run: |
           cd SnapAuth/snapauth
-          docker build -t snapauth:${{ steps.version.outputs.version }} .
-          docker tag snapauth:${{ steps.version.outputs.version }} snapauth:latest
+          docker build -t ghcr.io/parhamdavari/snapauth:${{ steps.version.outputs.version }} .
+          docker tag ghcr.io/parhamdavari/snapauth:${{ steps.version.outputs.version }} ghcr.io/parhamdavari/snapauth:latest
+          # Also create local tags for compatibility
+          docker tag ghcr.io/parhamdavari/snapauth:${{ steps.version.outputs.version }} snapauth:${{ steps.version.outputs.version }}
 
       - name: Build Bootstrap image
         run: |
           cd SnapAuth/scripts
-          docker build -f Dockerfile.bootstrap -t snapauth-bootstrap:${{ steps.version.outputs.version }} .
-          docker tag snapauth-bootstrap:${{ steps.version.outputs.version }} snapauth-bootstrap:latest
+          docker build -f Dockerfile.bootstrap -t ghcr.io/parhamdavari/snapauth-bootstrap:${{ steps.version.outputs.version }} .
+          docker tag ghcr.io/parhamdavari/snapauth-bootstrap:${{ steps.version.outputs.version }} ghcr.io/parhamdavari/snapauth-bootstrap:latest
+          # Also create local tags for compatibility
+          docker tag ghcr.io/parhamdavari/snapauth-bootstrap:${{ steps.version.outputs.version }} snapauth-bootstrap:${{ steps.version.outputs.version }}
 
       - name: Pull dependency images
         run: |
@@ -80,11 +84,11 @@ jobs:
         run: |
           cd release/images
 
-          echo "Exporting snapauth image..."
-          docker save snapauth:${{ steps.version.outputs.version }} -o snapauth-v${{ steps.version.outputs.version }}.tar
+          echo "Exporting snapauth image with GHCR tag..."
+          docker save ghcr.io/parhamdavari/snapauth:${{ steps.version.outputs.version }} -o snapauth-v${{ steps.version.outputs.version }}.tar
 
-          echo "Exporting bootstrap image..."
-          docker save snapauth-bootstrap:${{ steps.version.outputs.version }} -o bootstrap-v${{ steps.version.outputs.version }}.tar
+          echo "Exporting bootstrap image with GHCR tag..."
+          docker save ghcr.io/parhamdavari/snapauth-bootstrap:${{ steps.version.outputs.version }} -o bootstrap-v${{ steps.version.outputs.version }}.tar
 
           echo "Exporting fusionauth image..."
           docker save fusionauth/fusionauth-app:${{ env.FUSIONAUTH_VERSION }} -o fusionauth-${{ env.FUSIONAUTH_VERSION }}.tar
@@ -115,15 +119,15 @@ jobs:
           components:
             snapauth:
               version: "${{ steps.version.outputs.version }}"
-              image_tag: "snapauth:${{ steps.version.outputs.version }}"
+              image_tag: "ghcr.io/parhamdavari/snapauth:${{ steps.version.outputs.version }}"
               image_file: "snapauth-v${{ steps.version.outputs.version }}.tar"
-              image_digest: "$(docker inspect snapauth:${{ steps.version.outputs.version }} --format='{{.Id}}')"
+              image_digest: "$(docker inspect ghcr.io/parhamdavari/snapauth:${{ steps.version.outputs.version }} --format='{{.Id}}')"
 
             bootstrap:
               version: "${{ steps.version.outputs.version }}"
-              image_tag: "snapauth-bootstrap:${{ steps.version.outputs.version }}"
+              image_tag: "ghcr.io/parhamdavari/snapauth-bootstrap:${{ steps.version.outputs.version }}"
               image_file: "bootstrap-v${{ steps.version.outputs.version }}.tar"
-              image_digest: "$(docker inspect snapauth-bootstrap:${{ steps.version.outputs.version }} --format='{{.Id}}')"
+              image_digest: "$(docker inspect ghcr.io/parhamdavari/snapauth-bootstrap:${{ steps.version.outputs.version }} --format='{{.Id}}')"
 
             fusionauth:
               version: "${{ env.FUSIONAUTH_VERSION }}"

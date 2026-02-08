@@ -1,6 +1,6 @@
 services:
   bootstrap:
-    image: ${BOOTSTRAP_IMAGE:-snapauth-bootstrap:v2.0.0}
+    image: ${BOOTSTRAP_IMAGE:-ghcr.io/parhamdavari/snapauth-bootstrap:v2.0.0}
     volumes:
       - .:/workspace
     restart: "no"
@@ -83,7 +83,7 @@ services:
           memory: 512M
 
   snapauth:
-    image: ${SNAPAUTH_IMAGE:-snapauth:v2.0.0}
+    image: ${SNAPAUTH_IMAGE:-ghcr.io/parhamdavari/snapauth:v2.0.0}
     depends_on:
       fusionauth:
         condition: service_healthy
