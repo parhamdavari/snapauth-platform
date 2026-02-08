@@ -176,8 +176,11 @@ jobs:
           set -e
           cd snapauth-platform
 
-          # Copy .env.example to .env for testing
-          cp .env.example .env
+          # Run bootstrap first to generate secrets (including DB_PASSWORD)
+          docker run --rm -v "$PWD:/workspace" snapauth-bootstrap:${{ env.SNAPAUTH_VERSION }}
+
+          # Fix ownership (bootstrap creates files as root)
+          sudo chown -R $USER:$USER .env kickstart/ || true
 
           # Override image names to use locally built images (not GHCR)
           echo "SNAPAUTH_IMAGE=snapauth:${{ env.SNAPAUTH_VERSION }}" >> .env
@@ -236,8 +239,11 @@ jobs:
           set -e
           cd snapauth-platform
 
-          # Copy .env.example to .env for testing
-          cp .env.example .env
+          # Run bootstrap first to generate secrets (including DB_PASSWORD)
+          docker run --rm -v "$PWD:/workspace" snapauth-bootstrap:${{ env.SNAPAUTH_VERSION }}
+
+          # Fix ownership (bootstrap creates files as root)
+          sudo chown -R $USER:$USER .env kickstart/ || true
 
           # Override image names to use locally built images (not GHCR)
           echo "SNAPAUTH_IMAGE=snapauth:${{ env.SNAPAUTH_VERSION }}" >> .env
@@ -303,7 +309,12 @@ jobs:
         run: |
           set -e
           cd snapauth-platform
-          cp .env.example .env
+
+          # Run bootstrap first to generate secrets (including DB_PASSWORD)
+          docker run --rm -v "$PWD:/workspace" snapauth-bootstrap:${{ env.SNAPAUTH_VERSION }}
+
+          # Fix ownership (bootstrap creates files as root)
+          sudo chown -R $USER:$USER .env kickstart/ || true
 
           # Override image names to use locally built images (not GHCR)
           echo "SNAPAUTH_IMAGE=snapauth:${{ env.SNAPAUTH_VERSION }}" >> .env
@@ -459,7 +470,12 @@ jobs:
         run: |
           set -e
           cd snapauth-platform
-          cp .env.example .env
+
+          # Run bootstrap first to generate secrets (including DB_PASSWORD)
+          docker run --rm -v "$PWD:/workspace" snapauth-bootstrap:${{ env.SNAPAUTH_VERSION }}
+
+          # Fix ownership (bootstrap creates files as root)
+          sudo chown -R $USER:$USER .env kickstart/ || true
 
           # Override image names to use locally built images (not GHCR)
           echo "SNAPAUTH_IMAGE=snapauth:${{ env.SNAPAUTH_VERSION }}" >> .env
@@ -497,8 +513,11 @@ jobs:
           # Stop services
           docker compose down -v
 
-          # Start fresh
-          cp .env.example .env
+          # Run bootstrap to generate fresh secrets
+          docker run --rm -v "$PWD:/workspace" snapauth-bootstrap:${{ env.SNAPAUTH_VERSION }}
+
+          # Fix ownership (bootstrap creates files as root)
+          sudo chown -R $USER:$USER .env kickstart/ || true
 
           # Override image names to use locally built images (not GHCR)
           echo "SNAPAUTH_IMAGE=snapauth:${{ env.SNAPAUTH_VERSION }}" >> .env
