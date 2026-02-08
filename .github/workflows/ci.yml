@@ -21,6 +21,7 @@ jobs:
 
       - name: Validate Docker Compose files
         run: |
+          set -e
           # Copy .env.example to .env for validation
           cp .env.example .env
 
@@ -40,6 +41,7 @@ jobs:
 
       - name: Check scripts are executable
         run: |
+          set -e
           [ -x scripts/backup.sh ] || chmod +x scripts/backup.sh
           [ -x scripts/restore.sh ] || chmod +x scripts/restore.sh
           [ -x scripts/manage-secrets.sh ] || chmod +x scripts/manage-secrets.sh
@@ -49,12 +51,14 @@ jobs:
 
       - name: Validate shell scripts
         run: |
+          set -e
           sudo apt-get update && sudo apt-get install -y shellcheck
           shellcheck scripts/*.sh offline-install.sh certs/generate-self-signed.sh
           echo "✓ Shell scripts pass shellcheck"
 
       - name: Check documentation links
         run: |
+          set -e
           # Check README links
           grep -o '\[.*\](docs/.*\.md)' README.md | while read -r link; do
             file=$(echo "$link" | sed 's/.*(\(.*\))/\1/')
@@ -86,22 +90,26 @@ jobs:
 
       - name: Build SnapAuth image
         run: |
+          set -e
           cd SnapAuth/snapauth
           docker build -t snapauth:test .
 
       - name: Build Bootstrap image
         run: |
+          set -e
           cd SnapAuth/scripts
           docker build -f Dockerfile.bootstrap -t snapauth-bootstrap:test .
 
       - name: Pull dependency images
         run: |
+          set -e
           docker pull fusionauth/fusionauth-app:${{ env.FUSIONAUTH_VERSION }}
           docker pull postgres:${{ env.POSTGRES_VERSION }}
           docker pull nginx:1.25-alpine
 
       - name: Test offline-install.sh script
         run: |
+          set -e
           cd snapauth-platform
 
           # Create test images directory
@@ -119,9 +127,11 @@ jobs:
           # Run offline install
           ./test-offline-install.sh
 
-          # Verify images loaded
-          docker images | grep snapauth:test
-          docker images | grep snapauth-bootstrap:test
+          # Verify images loaded (with proper error handling)
+          docker images | grep -q snapauth:test || (echo "✗ ERROR: snapauth:test image not found" && exit 1)
+          docker images | grep -q snapauth-bootstrap:test || (echo "✗ ERROR: snapauth-bootstrap:test image not found" && exit 1)
+
+          echo "✓ Offline install test completed successfully"
 
   deploy-test:
     runs-on: ubuntu-latest
@@ -141,6 +151,7 @@ jobs:
 
       - name: Build images
         run: |
+          set -e
           cd SnapAuth/snapauth
           docker build -t snapauth:${{ env.SNAPAUTH_VERSION }} .
 
@@ -149,17 +160,20 @@ jobs:
 
       - name: Pull dependency images
         run: |
+          set -e
           docker pull fusionauth/fusionauth-app:${{ env.FUSIONAUTH_VERSION }}
           docker pull postgres:${{ env.POSTGRES_VERSION }}
           docker pull nginx:1.25-alpine
 
       - name: Generate test certificates
         run: |
+          set -e
           cd snapauth-platform/certs
           ./generate-self-signed.sh
 
       - name: Test isolated deployment
         run: |
+          set -e
           cd snapauth-platform
 
           # Copy .env.example to .env for testing
@@ -215,6 +229,7 @@ jobs:
 
       - name: Test microservices deployment
         run: |
+          set -e
           cd snapauth-platform
 
           # Copy .env.example to .env for testing
@@ -256,6 +271,7 @@ jobs:
 
       - name: Build images
         run: |
+          set -e
           cd SnapAuth/snapauth
           docker build -t snapauth:${{ env.SNAPAUTH_VERSION }} .
 
@@ -264,17 +280,20 @@ jobs:
 
       - name: Pull dependency images
         run: |
+          set -e
           docker pull fusionauth/fusionauth-app:${{ env.FUSIONAUTH_VERSION }}
           docker pull postgres:${{ env.POSTGRES_VERSION }}
           docker pull nginx:1.25-alpine
 
       - name: Generate test certificates
         run: |
+          set -e
           cd snapauth-platform/certs
           ./generate-self-signed.sh
 
       - name: Start services
         run: |
+          set -e
           cd snapauth-platform
           cp .env.example .env
           docker compose up -d
@@ -282,6 +301,7 @@ jobs:
 
       - name: Test API key authentication
         run: |
+          set -e
           cd snapauth-platform
 
           # Test 1: User creation WITHOUT API key should fail
@@ -319,6 +339,7 @@ jobs:
 
       - name: Test rate limiting
         run: |
+          set -e
           cd snapauth-platform
 
           echo "Test: Rate limiting on login endpoint"
@@ -344,6 +365,7 @@ jobs:
 
       - name: Test security headers
         run: |
+          set -e
           cd snapauth-platform
 
           echo "Test: Security headers present"
@@ -356,11 +378,12 @@ jobs:
 
       - name: Test network isolation
         run: |
+          set -e
           cd snapauth-platform
 
           echo "Test: FusionAuth port 9011 not exposed"
           # Should fail because port is not exposed
-          if curl -f --max-time 5 http://localhost:9011/api/status; then
+          if curl -f --max-time 5 http://localhost:9011/api/status 2>/dev/null; then
             echo "✗ SECURITY FAILURE: FusionAuth is exposed externally"
             exit 1
           fi
@@ -368,7 +391,7 @@ jobs:
 
           echo "Test: PostgreSQL port 5432 not exposed"
           # Should fail because port is not exposed
-          if nc -zv localhost 5432 2>&1 | grep -q "succeeded"; then
+          if nc -zv localhost 5432 2>&1 | grep -qE "open|succeeded"; then
             echo "✗ SECURITY FAILURE: PostgreSQL is exposed externally"
             exit 1
           fi
@@ -377,6 +400,7 @@ jobs:
       - name: Cleanup
         if: always()
         run: |
+          set -e
           cd snapauth-platform
           docker compose down -v
 
@@ -398,6 +422,7 @@ jobs:
 
       - name: Build images
         run: |
+          set -e
           cd SnapAuth/snapauth
           docker build -t snapauth:${{ env.SNAPAUTH_VERSION }} .
 
@@ -406,17 +431,20 @@ jobs:
 
       - name: Pull dependency images
         run: |
+          set -e
           docker pull fusionauth/fusionauth-app:${{ env.FUSIONAUTH_VERSION }}
           docker pull postgres:${{ env.POSTGRES_VERSION }}
           docker pull nginx:1.25-alpine
 
       - name: Generate test certificates
         run: |
+          set -e
           cd snapauth-platform/certs
           ./generate-self-signed.sh
 
       - name: Start services and create test data
         run: |
+          set -e
           cd snapauth-platform
           cp .env.example .env
           docker compose up -d
@@ -433,6 +461,7 @@ jobs:
 
       - name: Test backup
         run: |
+          set -e
           cd snapauth-platform
           ./scripts/backup.sh
 
@@ -444,6 +473,7 @@ jobs:
 
       - name: Test restore
         run: |
+          set -e
           cd snapauth-platform
 
           # Stop services
@@ -475,6 +505,7 @@ jobs:
       - name: Cleanup
         if: always()
         run: |
+          set -e
           cd snapauth-platform
           docker compose down -v
           sudo rm -rf /opt/snapauth-backups

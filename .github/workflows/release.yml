@@ -40,6 +40,7 @@ jobs:
       - name: Set version from tag or input
         id: version
         run: |
+          set -e
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             VERSION="${{ github.event.inputs.version }}"
           else
@@ -53,28 +54,38 @@ jobs:
 
       - name: Build SnapAuth image
         run: |
+          set -e
           cd SnapAuth/snapauth
           docker build -t ghcr.io/parhamdavari/snapauth:${{ steps.version.outputs.version }} .
           docker tag ghcr.io/parhamdavari/snapauth:${{ steps.version.outputs.version }} ghcr.io/parhamdavari/snapauth:latest
           # Also create local tags for compatibility
           docker tag ghcr.io/parhamdavari/snapauth:${{ steps.version.outputs.version }} snapauth:${{ steps.version.outputs.version }}
 
+          # Verify build succeeded
+          docker inspect ghcr.io/parhamdavari/snapauth:${{ steps.version.outputs.version }} > /dev/null
+
       - name: Build Bootstrap image
         run: |
+          set -e
           cd SnapAuth/scripts
           docker build -f Dockerfile.bootstrap -t ghcr.io/parhamdavari/snapauth-bootstrap:${{ steps.version.outputs.version }} .
           docker tag ghcr.io/parhamdavari/snapauth-bootstrap:${{ steps.version.outputs.version }} ghcr.io/parhamdavari/snapauth-bootstrap:latest
           # Also create local tags for compatibility
           docker tag ghcr.io/parhamdavari/snapauth-bootstrap:${{ steps.version.outputs.version }} snapauth-bootstrap:${{ steps.version.outputs.version }}
 
+          # Verify build succeeded
+          docker inspect ghcr.io/parhamdavari/snapauth-bootstrap:${{ steps.version.outputs.version }} > /dev/null
+
       - name: Pull dependency images
         run: |
+          set -e
           docker pull fusionauth/fusionauth-app:${{ env.FUSIONAUTH_VERSION }}
           docker pull postgres:${{ env.POSTGRES_VERSION }}
           docker pull nginx:${{ env.NGINX_VERSION }}
 
       - name: Create release directory structure
         run: |
+          set -e
           mkdir -p release/images
           mkdir -p release/docs
           mkdir -p release/scripts
@@ -82,35 +93,43 @@ jobs:
 
       - name: Export images to tarballs
         run: |
+          set -e
           cd release/images
 
           echo "Exporting snapauth image with GHCR tag..."
           docker save ghcr.io/parhamdavari/snapauth:${{ steps.version.outputs.version }} -o snapauth-v${{ steps.version.outputs.version }}.tar
+          [ -s snapauth-v${{ steps.version.outputs.version }}.tar ] || (echo "ERROR: snapauth tarball is empty" && exit 1)
 
           echo "Exporting bootstrap image with GHCR tag..."
           docker save ghcr.io/parhamdavari/snapauth-bootstrap:${{ steps.version.outputs.version }} -o bootstrap-v${{ steps.version.outputs.version }}.tar
+          [ -s bootstrap-v${{ steps.version.outputs.version }}.tar ] || (echo "ERROR: bootstrap tarball is empty" && exit 1)
 
           echo "Exporting fusionauth image..."
           docker save fusionauth/fusionauth-app:${{ env.FUSIONAUTH_VERSION }} -o fusionauth-${{ env.FUSIONAUTH_VERSION }}.tar
+          [ -s fusionauth-${{ env.FUSIONAUTH_VERSION }}.tar ] || (echo "ERROR: fusionauth tarball is empty" && exit 1)
 
           echo "Exporting postgres image..."
           docker save postgres:${{ env.POSTGRES_VERSION }} -o postgres-${{ env.POSTGRES_VERSION }}.tar
+          [ -s postgres-${{ env.POSTGRES_VERSION }}.tar ] || (echo "ERROR: postgres tarball is empty" && exit 1)
 
           echo "Exporting nginx image..."
           docker save nginx:${{ env.NGINX_VERSION }} -o nginx-${{ env.NGINX_VERSION }}.tar
+          [ -s nginx-${{ env.NGINX_VERSION }}.tar ] || (echo "ERROR: nginx tarball is empty" && exit 1)
 
           ls -lh
 
       - name: Generate checksums
         run: |
+          set -e
           cd release/images
           sha256sum *.tar > checksums.txt
           cat checksums.txt
 
       - name: Create VERSION.yml manifest
         run: |
+          set -e
           cd release
-          cat > VERSION.yml << 'EOF'
+          cat > VERSION.yml << EOF
           release:
             version: "${{ steps.version.outputs.version }}"
             date: "$(date -u +%Y-%m-%d)"
@@ -155,8 +174,14 @@ jobs:
             documentation: "docs/AIR-GAPPED-DEPLOYMENT.md"
           EOF
 
+          # Validate VERSION.yml was created and is not empty
+          [ -s VERSION.yml ] || (echo "ERROR: VERSION.yml is empty" && exit 1)
+          echo "✓ VERSION.yml created successfully"
+          cat VERSION.yml
+
       - name: Copy deployment files
         run: |
+          set -e
           cd release
 
           # Core deployment files
@@ -168,7 +193,7 @@ jobs:
           cp ../snapauth-platform/.gitignore .
 
           # Scripts
-          cp ../snapauth-platform/scripts/* scripts/
+          cp ../snapauth-platform/scripts/*.sh scripts/ || echo "Warning: No .sh files in scripts/"
           cp ../snapauth-platform/offline-install.sh .
 
           # Certificate generation
@@ -177,18 +202,22 @@ jobs:
           # Documentation
           cp ../snapauth-platform/README.md .
           cp ../snapauth-platform/CHANGELOG.md .
-          cp ../snapauth-platform/docs/*.md docs/
+          cp ../snapauth-platform/docs/*.md docs/ || echo "Warning: No .md files in docs/"
 
           # Make scripts executable
           chmod +x offline-install.sh
-          chmod +x scripts/*.sh
+          chmod +x scripts/*.sh 2>/dev/null || true
           chmod +x certs/generate-self-signed.sh
 
       - name: Create release tarball
         run: |
+          set -e
           tar czf snapauth-release-v${{ steps.version.outputs.version }}.tar.gz \
             -C release \
             .
+
+          # Validate tarball was created and is not empty
+          [ -s snapauth-release-v${{ steps.version.outputs.version }}.tar.gz ] || (echo "ERROR: Release tarball is empty" && exit 1)
 
           # Generate checksum for release tarball
           sha256sum snapauth-release-v${{ steps.version.outputs.version }}.tar.gz > snapauth-release-v${{ steps.version.outputs.version }}.tar.gz.sha256
@@ -197,12 +226,13 @@ jobs:
 
       - name: Verify release structure
         run: |
+          set -e
           echo "=== Release tarball contents ==="
           tar tzf snapauth-release-v${{ steps.version.outputs.version }}.tar.gz | head -30
 
           echo ""
           echo "=== Image tarballs ==="
-          tar tzf snapauth-release-v${{ steps.version.outputs.version }}.tar.gz | grep "images/.*\.tar$"
+          tar tzf snapauth-release-v${{ steps.version.outputs.version }}.tar.gz | grep "images/.*\.tar$" || (echo "ERROR: No image tarballs found in release" && exit 1)
 
           echo ""
           echo "=== Release size ==="
@@ -298,4 +328,5 @@ jobs:
       - name: Cleanup
         if: always()
         run: |
+          set -e
           docker system prune -af
