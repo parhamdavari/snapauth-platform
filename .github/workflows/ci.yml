@@ -113,7 +113,7 @@ jobs:
           docker save fusionauth/fusionauth-app:${{ env.FUSIONAUTH_VERSION }} -o test-images/fusionauth-test.tar
 
           # Modify offline-install.sh to use test-images directory
-          sed 's|IMAGES_DIR="images"|IMAGES_DIR="test-images"|' offline-install.sh > test-offline-install.sh
+          sed 's|IMAGES_DIR="${SCRIPT_DIR}/images"|IMAGES_DIR="${SCRIPT_DIR}/test-images"|' offline-install.sh > test-offline-install.sh
           chmod +x test-offline-install.sh
 
           # Run offline install
