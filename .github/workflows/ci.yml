@@ -21,6 +21,9 @@ jobs:
 
       - name: Validate Docker Compose files
         run: |
+          # Copy .env.example to .env for validation
+          cp .env.example .env
+
           docker compose -f docker-compose.yml config > /dev/null
           echo "✓ docker-compose.yml is valid"
 
@@ -156,6 +159,9 @@ jobs:
         run: |
           cd snapauth-platform
 
+          # Copy .env.example to .env for testing
+          cp .env.example .env
+
           # Start services
           docker compose up -d
 
@@ -207,6 +213,9 @@ jobs:
       - name: Test microservices deployment
         run: |
           cd snapauth-platform
+
+          # Copy .env.example to .env for testing
+          cp .env.example .env
 
           # Create shared-services network
           docker network create shared-services
@@ -264,6 +273,7 @@ jobs:
       - name: Start services
         run: |
           cd snapauth-platform
+          cp .env.example .env
           docker compose up -d
           sleep 30
 
@@ -405,6 +415,7 @@ jobs:
       - name: Start services and create test data
         run: |
           cd snapauth-platform
+          cp .env.example .env
           docker compose up -d
           sleep 30
 
@@ -436,6 +447,7 @@ jobs:
           docker compose down -v
 
           # Start fresh
+          cp .env.example .env
           docker compose up -d
           sleep 30
 
