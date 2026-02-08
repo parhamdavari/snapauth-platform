@@ -179,6 +179,10 @@ jobs:
           # Copy .env.example to .env for testing
           cp .env.example .env
 
+          # Override image names to use locally built images (not GHCR)
+          echo "SNAPAUTH_IMAGE=snapauth:${{ env.SNAPAUTH_VERSION }}" >> .env
+          echo "BOOTSTRAP_IMAGE=snapauth-bootstrap:${{ env.SNAPAUTH_VERSION }}" >> .env
+
           # Start services
           docker compose up -d
 
@@ -234,6 +238,10 @@ jobs:
 
           # Copy .env.example to .env for testing
           cp .env.example .env
+
+          # Override image names to use locally built images (not GHCR)
+          echo "SNAPAUTH_IMAGE=snapauth:${{ env.SNAPAUTH_VERSION }}" >> .env
+          echo "BOOTSTRAP_IMAGE=snapauth-bootstrap:${{ env.SNAPAUTH_VERSION }}" >> .env
 
           # Create shared-services network
           docker network create shared-services
@@ -296,6 +304,11 @@ jobs:
           set -e
           cd snapauth-platform
           cp .env.example .env
+
+          # Override image names to use locally built images (not GHCR)
+          echo "SNAPAUTH_IMAGE=snapauth:${{ env.SNAPAUTH_VERSION }}" >> .env
+          echo "BOOTSTRAP_IMAGE=snapauth-bootstrap:${{ env.SNAPAUTH_VERSION }}" >> .env
+
           docker compose up -d
           sleep 30
 
@@ -447,6 +460,11 @@ jobs:
           set -e
           cd snapauth-platform
           cp .env.example .env
+
+          # Override image names to use locally built images (not GHCR)
+          echo "SNAPAUTH_IMAGE=snapauth:${{ env.SNAPAUTH_VERSION }}" >> .env
+          echo "BOOTSTRAP_IMAGE=snapauth-bootstrap:${{ env.SNAPAUTH_VERSION }}" >> .env
+
           docker compose up -d
           sleep 30
 
@@ -481,6 +499,11 @@ jobs:
 
           # Start fresh
           cp .env.example .env
+
+          # Override image names to use locally built images (not GHCR)
+          echo "SNAPAUTH_IMAGE=snapauth:${{ env.SNAPAUTH_VERSION }}" >> .env
+          echo "BOOTSTRAP_IMAGE=snapauth-bootstrap:${{ env.SNAPAUTH_VERSION }}" >> .env
+
           docker compose up -d
           sleep 30
 
