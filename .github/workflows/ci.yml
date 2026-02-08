@@ -128,8 +128,8 @@ jobs:
           ./test-offline-install.sh
 
           # Verify images loaded (with proper error handling)
-          docker images | grep -q snapauth:test || (echo "✗ ERROR: snapauth:test image not found" && exit 1)
-          docker images | grep -q snapauth-bootstrap:test || (echo "✗ ERROR: snapauth-bootstrap:test image not found" && exit 1)
+          docker images snapauth:test --format "{{.Repository}}:{{.Tag}}" | grep -q "snapauth:test" || (echo "✗ ERROR: snapauth:test image not found" && exit 1)
+          docker images snapauth-bootstrap:test --format "{{.Repository}}:{{.Tag}}" | grep -q "snapauth-bootstrap:test" || (echo "✗ ERROR: snapauth-bootstrap:test image not found" && exit 1)
 
           echo "✓ Offline install test completed successfully"
 
