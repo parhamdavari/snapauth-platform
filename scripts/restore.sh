@@ -21,7 +21,7 @@ fi
 
 echo -e "${YELLOW}⚠  WARNING: This will overwrite current data${NC}"
 echo "Backup path: $BACKUP_PATH"
-read -p "Continue? (yes/no): " confirm
+read -r -p "Continue? (yes/no): " confirm
 if [ "$confirm" != "yes" ]; then
   echo "Restore cancelled"
   exit 0

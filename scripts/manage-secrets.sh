@@ -40,7 +40,7 @@ cmd_init() {
     docker run --rm -v "$PLATFORM_DIR:/workspace" snapauth-bootstrap:v2.0.0
     
     # Prompt for encryption key
-    read -sp "Enter encryption key for secrets (will be needed for restore): " ENCRYPTION_KEY
+    read -r -sp "Enter encryption key for secrets (will be needed for restore): " ENCRYPTION_KEY
     echo
     
     if [ -z "$ENCRYPTION_KEY" ]; then
@@ -114,7 +114,7 @@ cmd_rotate() {
     
     # Prompt to remove old key
     echo ""
-    read -p "Remove old API key now? (yes/no): " REMOVE_OLD
+    read -r -p "Remove old API key now? (yes/no): " REMOVE_OLD
     if [ "$REMOVE_OLD" = "yes" ]; then
         # Keep only the new key
         sed -i "s|^SNAPAUTH_ADMIN_API_KEYS=.*|SNAPAUTH_ADMIN_API_KEYS=$NEW_KEY|" .env
@@ -139,7 +139,7 @@ cmd_backup() {
     BACKUP_DATE=$(date +%Y%m%d-%H%M%S)
     
     # Prompt for encryption key
-    read -sp "Enter encryption key: " ENCRYPTION_KEY
+    read -r -sp "Enter encryption key: " ENCRYPTION_KEY
     echo
     
     if [ -z "$ENCRYPTION_KEY" ]; then
