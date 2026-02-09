@@ -366,14 +366,21 @@ jobs:
           set -e
           cd snapauth-platform
 
+          # Create a test user for rate limiting test
+          API_KEY=$(grep SNAPAUTH_ADMIN_API_KEY .env | cut -d= -f2)
+          curl -f -k -X POST https://localhost/v1/users \
+            -H "X-SnapAuth-API-Key: $API_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{"username":"09333333333","password":"CorrectPassword123!"}' || echo "User may already exist"
+
           echo "Test: Rate limiting on login endpoint"
           RATE_LIMITED=false
 
-          # Send 20 login attempts (limit is 10/minute + 5 burst = 15 total capacity)
+          # Send 20 rapid login attempts with WRONG password (limit is 10/minute + 5 burst = 15 total capacity)
           for i in {1..20}; do
-            RESPONSE=$(curl -s -k -w "%{http_code}" -o /dev/null --max-time 5 https://localhost/v1/auth/login \
+            RESPONSE=$(curl -s -k -w "%{http_code}" -o /dev/null https://localhost/v1/auth/login \
               -H "Content-Type: application/json" \
-              -d '{"username":"09999999999","password":"wrong"}')
+              -d '{"username":"09333333333","password":"WrongPassword"}' 2>&1)
 
             echo "Attempt $i: HTTP $RESPONSE"
 
@@ -382,6 +389,9 @@ jobs:
               echo "✓ Rate limit enforced at attempt $i"
               break
             fi
+
+            # Small delay to avoid overwhelming the system
+            sleep 0.1
           done
 
           if [ "$RATE_LIMITED" = "false" ]; then
