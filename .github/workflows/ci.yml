@@ -371,9 +371,11 @@ jobs:
 
           # Send 20 login attempts (limit is 10/minute + 5 burst = 15 total capacity)
           for i in {1..20}; do
-            RESPONSE=$(curl -s -k -w "%{http_code}" -o /dev/null https://localhost/v1/auth/login \
+            RESPONSE=$(curl -s -k -w "%{http_code}" -o /dev/null --max-time 5 https://localhost/v1/auth/login \
               -H "Content-Type: application/json" \
               -d '{"username":"09999999999","password":"wrong"}')
+
+            echo "Attempt $i: HTTP $RESPONSE"
 
             if [ "$RESPONSE" = "429" ]; then
               RATE_LIMITED=true
@@ -383,7 +385,8 @@ jobs:
           done
 
           if [ "$RATE_LIMITED" = "false" ]; then
-            echo "✗ SECURITY WARNING: Rate limiting not working"
+            echo "✗ SECURITY WARNING: Rate limiting not working (all $i attempts completed without 429)"
+            echo "Last response code: $RESPONSE"
             exit 1
           fi
 
@@ -510,31 +513,28 @@ jobs:
           set -e
           cd snapauth-platform
 
-          # Stop services
+          # Stop services and remove volumes
           docker compose down -v
 
-          # Run bootstrap to generate fresh secrets
-          docker run --rm -v "$PWD:/workspace" snapauth-bootstrap:${{ env.SNAPAUTH_VERSION }}
+          # Restore from backup (with non-interactive mode for CI)
+          # Note: restore.sh will restore .env, kickstart/, and database
+          LATEST_BACKUP=$(ls -t /opt/snapauth-backups/snapauth-*-db.sql.gz | head -1)
+          BACKUP_PREFIX=$(basename "$LATEST_BACKUP" | sed 's/-db.sql.gz//')
+          SNAPAUTH_RESTORE_YES=true ./scripts/restore.sh "/opt/snapauth-backups/$BACKUP_PREFIX"
 
-          # Fix ownership (bootstrap creates files as root)
+          # Fix ownership (restore extracts files as root)
           sudo chown -R $USER:$USER .env kickstart/ || true
 
           # Override image names to use locally built images (not GHCR)
           echo "SNAPAUTH_IMAGE=snapauth:${{ env.SNAPAUTH_VERSION }}" >> .env
           echo "BOOTSTRAP_IMAGE=snapauth-bootstrap:${{ env.SNAPAUTH_VERSION }}" >> .env
 
-          docker compose up -d
+          # Wait for services to fully initialize after restore
+          echo "Waiting for services to fully initialize after restore..."
           sleep 30
 
-          # Restore from backup (with non-interactive mode for CI)
-          LATEST_BACKUP=$(ls -t /opt/snapauth-backups/snapauth-*-db.sql.gz | head -1)
-          BACKUP_PREFIX=$(basename "$LATEST_BACKUP" | sed 's/-db.sql.gz//')
-          SNAPAUTH_RESTORE_YES=true ./scripts/restore.sh "/opt/snapauth-backups/$BACKUP_PREFIX"
-
-          # Restart services
-          docker compose restart
-
-          sleep 10
+          # Check service health
+          docker compose ps
 
           # Verify test user still exists by trying to log in
           curl -f -k -X POST https://localhost/v1/auth/login \
