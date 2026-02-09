@@ -30,7 +30,7 @@ openssl x509 -req -days $DAYS_VALID \
     -in "$CERT_DIR/server.csr" \
     -signkey "$CERT_DIR/server.key" \
     -out "$CERT_DIR/server.crt" \
-    -extfile <(printf "subjectAltName=DNS:localhost,DNS:snapauth,IP:127.0.0.1")
+    -extfile <(printf "subjectAltName=DNS:localhost,DNS:snapauth,DNS:*.auth.machmilling.com,DNS:auth.machmilling.com,DNS:panel.auth.machmilling.com,IP:127.0.0.1")
 
 # Set appropriate permissions
 chmod 600 "$CERT_DIR/server.key"
@@ -46,8 +46,14 @@ echo "Files created:"
 echo "  - $CERT_DIR/server.key (private key)"
 echo "  - $CERT_DIR/server.crt (certificate)"
 echo ""
+echo "Certificate covers:"
+echo "  - localhost, snapauth (development/CI)"
+echo "  - *.auth.machmilling.com (production wildcard)"
+echo "  - auth.machmilling.com, panel.auth.machmilling.com (production)"
+echo ""
 echo "⚠️  WARNING: This is a self-signed certificate for DEVELOPMENT ONLY"
 echo "   For production, use Let's Encrypt or your organization's CA"
+echo "   Example: certbot certonly --standalone -d auth.machmilling.com -d '*.auth.machmilling.com'"
 echo ""
 echo "To view certificate details:"
 echo "  openssl x509 -in $CERT_DIR/server.crt -text -noout"
