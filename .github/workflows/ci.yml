@@ -419,18 +419,14 @@ jobs:
           cd snapauth-platform
 
           echo "Test: Security headers present"
-          HEADERS=""
-          for i in {1..5}; do
-            HEADERS=$(curl -sI -k --max-time 5 https://localhost/health)
-            if echo "$HEADERS" | grep -q "X-Frame-Options"; then
-              break
-            fi
-            echo "  Attempt $i: Headers not yet available, retrying..."
-            sleep 3
-          done
+          # Use -i for case-insensitive grep: HTTP/2 lowercases all header names
+          # (e.g. "x-frame-options" instead of "X-Frame-Options")
+          HEADERS=$(curl -sI -k --max-time 10 https://localhost/health)
+          echo "Response headers:"
+          echo "$HEADERS"
 
-          echo "$HEADERS" | grep -q "X-Frame-Options" || (echo "✗ Missing X-Frame-Options header"; exit 1)
-          echo "$HEADERS" | grep -q "X-Content-Type-Options" || (echo "✗ Missing X-Content-Type-Options header"; exit 1)
+          echo "$HEADERS" | grep -qi "X-Frame-Options" || (echo "✗ Missing X-Frame-Options header"; exit 1)
+          echo "$HEADERS" | grep -qi "X-Content-Type-Options" || (echo "✗ Missing X-Content-Type-Options header"; exit 1)
 
           echo "✓ Security headers present"
 
