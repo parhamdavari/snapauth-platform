@@ -402,13 +402,32 @@ jobs:
             exit 1
           fi
 
+          # Wait for service to recover after rate limiting bombardment
+          echo "Waiting for service to recover after rate limiting test..."
+          for i in {1..10}; do
+            if curl -sf -k --max-time 3 https://localhost/health > /dev/null 2>&1; then
+              echo "✓ Service recovered"
+              break
+            fi
+            echo "  Recovery attempt $i/10..."
+            sleep 2
+          done
+
       - name: Test security headers
         run: |
           set -e
           cd snapauth-platform
 
           echo "Test: Security headers present"
-          HEADERS=$(curl -sI -k https://localhost/health)
+          HEADERS=""
+          for i in {1..5}; do
+            HEADERS=$(curl -sI -k --max-time 5 https://localhost/health)
+            if echo "$HEADERS" | grep -q "X-Frame-Options"; then
+              break
+            fi
+            echo "  Attempt $i: Headers not yet available, retrying..."
+            sleep 3
+          done
 
           echo "$HEADERS" | grep -q "X-Frame-Options" || (echo "✗ Missing X-Frame-Options header"; exit 1)
           echo "$HEADERS" | grep -q "X-Content-Type-Options" || (echo "✗ Missing X-Content-Type-Options header"; exit 1)
