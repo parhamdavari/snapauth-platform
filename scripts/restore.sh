@@ -21,10 +21,14 @@ fi
 
 echo -e "${YELLOW}⚠  WARNING: This will overwrite current data${NC}"
 echo "Backup path: $BACKUP_PATH"
-read -r -p "Continue? (yes/no): " confirm
-if [ "$confirm" != "yes" ]; then
-  echo "Restore cancelled"
-  exit 0
+
+# Skip confirmation if SNAPAUTH_RESTORE_YES is set (for CI/automation)
+if [ "$SNAPAUTH_RESTORE_YES" != "true" ]; then
+  read -r -p "Continue? (yes/no): " confirm
+  if [ "$confirm" != "yes" ]; then
+    echo "Restore cancelled"
+    exit 0
+  fi
 fi
 
 echo -e "${GREEN}SnapAuth Restore${NC}"
