@@ -198,7 +198,7 @@ jobs:
 
           # Test health endpoint
           for i in {1..30}; do
-            if curl -f http://localhost:8080/health; then
+            if curl -f http://localhost/health; then
               echo "✓ Health check passed"
               break
             fi
@@ -215,7 +215,7 @@ jobs:
           echo "Admin API key retrieved (length: ${#API_KEY})"
 
           # Test user creation with API key
-          curl -f -X POST http://localhost:8080/v1/users \
+          curl -f -k -X POST https://localhost/v1/users \
             -H "X-SnapAuth-API-Key: $API_KEY" \
             -H "Content-Type: application/json" \
             -d '{"username":"testuser@example.com","password":"Test123!@#"}' \
@@ -224,7 +224,7 @@ jobs:
           echo "✓ User creation succeeded"
 
           # Test login
-          curl -f -X POST http://localhost:8080/v1/auth/login \
+          curl -f -k -X POST https://localhost/v1/auth/login \
             -H "Content-Type: application/json" \
             -d '{"username":"testuser@example.com","password":"Test123!@#"}' \
             || (echo "✗ Login failed"; docker compose logs snapauth; exit 1)
@@ -330,7 +330,7 @@ jobs:
 
           # Test 1: User creation WITHOUT API key should fail
           echo "Test 1: Verify unauthenticated user creation is blocked"
-          if curl -f -X POST http://localhost:8080/v1/users \
+          if curl -f -k -X POST https://localhost/v1/users \
             -H "Content-Type: application/json" \
             -d '{"username":"test","password":"test"}'; then
             echo "✗ SECURITY FAILURE: User creation succeeded without API key"
@@ -340,7 +340,7 @@ jobs:
 
           # Test 2: User creation with INVALID API key should fail
           echo "Test 2: Verify invalid API key is rejected"
-          if curl -f -X POST http://localhost:8080/v1/users \
+          if curl -f -k -X POST https://localhost/v1/users \
             -H "X-SnapAuth-API-Key: invalid-key" \
             -H "Content-Type: application/json" \
             -d '{"username":"test","password":"test"}'; then
@@ -352,7 +352,7 @@ jobs:
           # Test 3: User creation with VALID API key should succeed
           echo "Test 3: Verify valid API key works"
           API_KEY=$(grep SNAPAUTH_ADMIN_API_KEY .env | cut -d= -f2)
-          if ! curl -f -X POST http://localhost:8080/v1/users \
+          if ! curl -f -k -X POST https://localhost/v1/users \
             -H "X-SnapAuth-API-Key: $API_KEY" \
             -H "Content-Type: application/json" \
             -d '{"username":"testuser@example.com","password":"Test123!@#"}'; then
@@ -371,7 +371,7 @@ jobs:
 
           # Send 15 login attempts (limit is 10/minute)
           for i in {1..15}; do
-            RESPONSE=$(curl -s -w "%{http_code}" -o /dev/null http://localhost:8080/v1/auth/login \
+            RESPONSE=$(curl -s -k -w "%{http_code}" -o /dev/null https://localhost/v1/auth/login \
               -H "Content-Type: application/json" \
               -d '{"username":"test","password":"wrong"}')
 
@@ -393,7 +393,7 @@ jobs:
           cd snapauth-platform
 
           echo "Test: Security headers present"
-          HEADERS=$(curl -sI http://localhost:8080/health)
+          HEADERS=$(curl -sI -k https://localhost/health)
 
           echo "$HEADERS" | grep -q "X-Frame-Options" || (echo "✗ Missing X-Frame-Options header"; exit 1)
           echo "$HEADERS" | grep -q "X-Content-Type-Options" || (echo "✗ Missing X-Content-Type-Options header"; exit 1)
@@ -486,7 +486,7 @@ jobs:
 
           # Create test user
           API_KEY=$(grep SNAPAUTH_ADMIN_API_KEY .env | cut -d= -f2)
-          curl -f -X POST http://localhost:8080/v1/users \
+          curl -f -k -X POST https://localhost/v1/users \
             -H "X-SnapAuth-API-Key: $API_KEY" \
             -H "Content-Type: application/json" \
             -d '{"username":"backuptest@example.com","password":"Test123!@#"}'
@@ -537,7 +537,7 @@ jobs:
           sleep 10
 
           # Verify test user still exists by trying to log in
-          curl -f -X POST http://localhost:8080/v1/auth/login \
+          curl -f -k -X POST https://localhost/v1/auth/login \
             -H "Content-Type: application/json" \
             -d '{"username":"backuptest@example.com","password":"Test123!@#"}' \
             || (echo "✗ Restore failed: test user not found"; exit 1)
