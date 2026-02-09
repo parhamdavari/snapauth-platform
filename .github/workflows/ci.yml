@@ -218,7 +218,7 @@ jobs:
           curl -f -k -X POST https://localhost/v1/users \
             -H "X-SnapAuth-API-Key: $API_KEY" \
             -H "Content-Type: application/json" \
-            -d '{"username":"testuser@example.com","password":"Test123!@#"}' \
+            -d '{"username":"09123456789","password":"Test123!@#"}' \
             || (echo "✗ User creation failed"; docker compose logs snapauth; exit 1)
 
           echo "✓ User creation succeeded"
@@ -226,7 +226,7 @@ jobs:
           # Test login
           curl -f -k -X POST https://localhost/v1/auth/login \
             -H "Content-Type: application/json" \
-            -d '{"username":"testuser@example.com","password":"Test123!@#"}' \
+            -d '{"username":"09123456789","password":"Test123!@#"}' \
             || (echo "✗ Login failed"; docker compose logs snapauth; exit 1)
 
           echo "✓ Login succeeded"
@@ -332,7 +332,7 @@ jobs:
           echo "Test 1: Verify unauthenticated user creation is blocked"
           if curl -f -k -X POST https://localhost/v1/users \
             -H "Content-Type: application/json" \
-            -d '{"username":"test","password":"test"}'; then
+            -d '{"username":"09111111111","password":"test"}'; then
             echo "✗ SECURITY FAILURE: User creation succeeded without API key"
             exit 1
           fi
@@ -343,7 +343,7 @@ jobs:
           if curl -f -k -X POST https://localhost/v1/users \
             -H "X-SnapAuth-API-Key: invalid-key" \
             -H "Content-Type: application/json" \
-            -d '{"username":"test","password":"test"}'; then
+            -d '{"username":"09222222222","password":"test"}'; then
             echo "✗ SECURITY FAILURE: User creation succeeded with invalid API key"
             exit 1
           fi
@@ -355,7 +355,7 @@ jobs:
           if ! curl -f -k -X POST https://localhost/v1/users \
             -H "X-SnapAuth-API-Key: $API_KEY" \
             -H "Content-Type: application/json" \
-            -d '{"username":"testuser@example.com","password":"Test123!@#"}'; then
+            -d '{"username":"09123456789","password":"Test123!@#"}'; then
             echo "✗ User creation failed with valid API key"
             exit 1
           fi
@@ -373,7 +373,7 @@ jobs:
           for i in {1..15}; do
             RESPONSE=$(curl -s -k -w "%{http_code}" -o /dev/null https://localhost/v1/auth/login \
               -H "Content-Type: application/json" \
-              -d '{"username":"test","password":"wrong"}')
+              -d '{"username":"09999999999","password":"wrong"}')
 
             if [ "$RESPONSE" = "429" ]; then
               RATE_LIMITED=true
@@ -489,7 +489,7 @@ jobs:
           curl -f -k -X POST https://localhost/v1/users \
             -H "X-SnapAuth-API-Key: $API_KEY" \
             -H "Content-Type: application/json" \
-            -d '{"username":"backuptest@example.com","password":"Test123!@#"}'
+            -d '{"username":"09987654321","password":"Test123!@#"}'
 
           echo "✓ Test data created"
 
@@ -539,7 +539,7 @@ jobs:
           # Verify test user still exists by trying to log in
           curl -f -k -X POST https://localhost/v1/auth/login \
             -H "Content-Type: application/json" \
-            -d '{"username":"backuptest@example.com","password":"Test123!@#"}' \
+            -d '{"username":"09987654321","password":"Test123!@#"}' \
             || (echo "✗ Restore failed: test user not found"; exit 1)
 
           echo "✓ Restore successful: test data recovered"
