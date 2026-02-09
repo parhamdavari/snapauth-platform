@@ -366,37 +366,39 @@ jobs:
           set -e
           cd snapauth-platform
 
-          # Create a test user for rate limiting test
-          API_KEY=$(grep SNAPAUTH_ADMIN_API_KEY .env | cut -d= -f2)
-          curl -f -k -X POST https://localhost/v1/users \
-            -H "X-SnapAuth-API-Key: $API_KEY" \
-            -H "Content-Type: application/json" \
-            -d '{"username":"09333333333","password":"CorrectPassword123!"}' || echo "User may already exist"
-
           echo "Test: Rate limiting on login endpoint"
-          RATE_LIMITED=false
 
-          # Send 20 rapid login attempts with WRONG password (limit is 10/minute + 5 burst = 15 total capacity)
-          for i in {1..20}; do
-            RESPONSE=$(curl -s -k -w "%{http_code}" -o /dev/null https://localhost/v1/auth/login \
+          # Send 20 concurrent requests to trigger nginx rate limiting
+          # Rate limit is 10/min + 5 burst = 15 total capacity
+          # Requests must arrive concurrently since SnapAuth has slow responses for failed logins
+          RESULTS_DIR=$(mktemp -d)
+
+          for i in $(seq 1 20); do
+            curl -s -k -w "%{http_code}" -o /dev/null --max-time 30 https://localhost/v1/auth/login \
               -H "Content-Type: application/json" \
-              -d '{"username":"09333333333","password":"WrongPassword"}' 2>&1)
-
-            echo "Attempt $i: HTTP $RESPONSE"
-
-            if [ "$RESPONSE" = "429" ]; then
-              RATE_LIMITED=true
-              echo "✓ Rate limit enforced at attempt $i"
-              break
-            fi
-
-            # Small delay to avoid overwhelming the system
-            sleep 0.1
+              -d '{"username":"09123456789","password":"wrong"}' \
+              > "$RESULTS_DIR/$i.txt" 2>&1 &
           done
 
-          if [ "$RATE_LIMITED" = "false" ]; then
-            echo "✗ SECURITY WARNING: Rate limiting not working (all $i attempts completed without 429)"
-            echo "Last response code: $RESPONSE"
+          # Wait for all background curl processes to finish
+          wait
+
+          # Check results
+          RATE_LIMITED=false
+          for i in $(seq 1 20); do
+            CODE=$(cat "$RESULTS_DIR/$i.txt" 2>/dev/null || echo "000")
+            echo "Request $i: HTTP $CODE"
+            if [ "$CODE" = "429" ]; then
+              RATE_LIMITED=true
+            fi
+          done
+
+          rm -rf "$RESULTS_DIR"
+
+          if [ "$RATE_LIMITED" = "true" ]; then
+            echo "✓ Rate limiting is working correctly"
+          else
+            echo "✗ SECURITY WARNING: Rate limiting not working (no 429 responses received)"
             exit 1
           fi
 
